@@ -54,29 +54,65 @@ static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
 
 static char *heap_listp;
+const int MAX_SIZE=15;
 
 /*
  * mm_init
  */
 int mm_init(void) {
-// Your code here
+    int heap_listp=mem_sbrk(4*WSIZE);
+    if(heap_listp==(void*)-1){
+        return -1;
+    }
+    PUT(heap_listp, 0);
+    PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1)); 
+    PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1)); 
+    PUT(heap_listp + (3 * WSIZE), PACK(0, 1)); 
+    heap_listp += (2 * WSIZE);
 
+    if (extend_heap(115) == NULL)
+        return -1;
+    return 0;
 }
 
 /*
  * malloc
  */
 void *malloc(size_t size) {
-// Your code here
+    size_t bias;
+    size_t extend;
+    char *first;
+    if(size == 0)
+        return NULL;
+    if(size <= DSIZE)
+        bias = 2*DSIZE;
+    else
+        bias = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
 
+    if((first = find_fit(bias)) != NULL){
+        place(first, bias);
+        return first;
+    }
+    extend = MAX(bias, CHUNKSIZE);
+    if((first = extend_heap(extend/WSIZE)) == NULL)
+        return NULL;
+    place(first, bias);
+    return first;
 }
 
 /*
  * free
  */
 void free(void *ptr) {
-// Your code here
-
+    if (ptr==0){
+        return;
+    }
+    size_t size=GET_SIZE(HDRP(ptr));
+    PUT(HDRP(ptr), PACK(size, 0));
+    PUT(FTRP(ptr), PACK(size, 0));
+    PUT(SUCC(ptr),0);
+    PUT(PRED(ptr),0);
+    coalesce(ptr);
 }
 
 /*
@@ -153,7 +189,27 @@ bool mm_checkheap(int lineno) {
 // HINT: Make sure the heap size is properly aligned. Don't forget to coalesce
 // free blocks.
 static void *extend_heap(size_t words) {
-// Your code here
+    char* block;
+    size_t size;
+
+    if(words%2==0){
+        size=words*WSIZE;
+    }
+    else{
+        size=(words+1)*WSIZE;
+    }
+
+    if ((long)(block = mem_sbrk(size)) == -1)
+        return NULL;
+
+
+    PUT(HDRP(block), PACK(size, 0)); 
+    PUT(FTRP(block), PACK(size, 0)); 
+    PUT(SUCC(block),0);
+    PUT(PRED(block),0);
+    PUT(HDRP(NEXT_BLKP(block)), PACK(0, 1)); 
+
+    return coalesce(block); 
 
 }
 
@@ -165,24 +221,71 @@ static void *coalesce(void *bp) {
 
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));                     
 
     /* Case 1 */
     if (prev_alloc && next_alloc) {
         return bp;
     }
-    // Your code here: case 2, 3 and 4
+
+    /* Case 2 */
+    else if(prev_alloc && !next_alloc){
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));  
+        PUT(HDRP(bp), PACK(size, 0));           
+        PUT(FTRP(bp), PACK(size, 0));  
+    }
+
+    /* Case 3 */
+    else if(!prev_alloc && next_alloc){
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+
+    /* Case 4 */
+    else{
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+        
+    }
+    return bp;
 
 }
 
 /* First-fit search */
 // Return the first fit block, if not find, return NULL
-static void *find_fit(size_t asize) {
-// Your code here
 
+static void *find_fit(size_t asize) {
+   void *p=heap_listp;
+   while(GET_SIZE(HDRP(p))>0) {
+       if (!GET_ALLOC(HDRP(p))&&(asize<=GET_SIZE(HDRP(p)))) {
+           return p;
+       }
+       p=NEXT_BLKP(p);
+   }
+   return NULL; 
 }
+
 
 // Place the block
 static void place(void *bp, size_t asize) {
-// Your code here
+    
+    size_t total = GET_SIZE(HDRP(bp));
+    size_t now_size = total - asize;
 
+    if (now_size >= 16) {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp);
+        PUT(HDRP(bp), PACK(now_size, 0));
+        PUT(FTRP(bp), PACK(now_size, 0));
+        PUT(PRED(bp),0);
+        PUT(SUCC(bp),0);
+    } else {
+        PUT(HDRP(bp), PACK(total, 1));
+        PUT(FTRP(bp), PACK(total, 1));
+    }
 }
